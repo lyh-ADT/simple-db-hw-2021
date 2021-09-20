@@ -9,46 +9,46 @@ import java.io.Serializable;
 public class RecordId implements Serializable {
 
     private static final long serialVersionUID = 1L;
+    private final PageId pageId;
+    private final int tupleNo;
 
     /**
-     * Creates a new RecordId referring to the specified PageId and tuple
-     * number.
+     * Creates a new RecordId referring to the specified PageId and tuple number.
      * 
-     * @param pid
-     *            the pageid of the page on which the tuple resides
-     * @param tupleno
-     *            the tuple number within the page.
+     * @param pid     the pageid of the page on which the tuple resides
+     * @param tupleno the tuple number within the page.
      */
     public RecordId(PageId pid, int tupleno) {
-        // some code goes here
+        this.pageId = pid;
+        this.tupleNo = tupleno;
     }
 
     /**
      * @return the tuple number this RecordId references.
      */
     public int getTupleNumber() {
-        // some code goes here
-        return 0;
+        return tupleNo;
     }
 
     /**
      * @return the page id this RecordId references.
      */
     public PageId getPageId() {
-        // some code goes here
-        return null;
+        return pageId;
     }
 
     /**
-     * Two RecordId objects are considered equal if they represent the same
-     * tuple.
+     * Two RecordId objects are considered equal if they represent the same tuple.
      * 
      * @return True if this and o represent the same tuple
      */
     @Override
     public boolean equals(Object o) {
-        // some code goes here
-        throw new UnsupportedOperationException("implement this");
+        if (o.getClass() != this.getClass()) {
+            return false;
+        }
+        RecordId rid = (RecordId) o;
+        return pageId.equals(rid.pageId) && tupleNo == rid.tupleNo;
     }
 
     /**
@@ -59,9 +59,12 @@ public class RecordId implements Serializable {
      */
     @Override
     public int hashCode() {
-        // some code goes here
-        throw new UnsupportedOperationException("implement this");
+        return toString().hashCode();
+    }
 
+    @Override
+    public String toString() {
+        return "RecordId [pageId=" + pageId + ", tupleNo=" + tupleNo + "]";
     }
 
 }
