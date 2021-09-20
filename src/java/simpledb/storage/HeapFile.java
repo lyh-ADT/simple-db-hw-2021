@@ -69,7 +69,6 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public Page readPage(PageId pid) {
         int offset = pid.getPageNumber() * BufferPool.getPageSize();
-        System.out.println(String.format("fileSize: %d, offset: %d", this.file.length(), offset));
         if (offset > file.length()) {
             throw new IllegalArgumentException();
         }

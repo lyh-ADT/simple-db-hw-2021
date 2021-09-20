@@ -95,8 +95,12 @@ public class HeapPage implements Page {
      *         tuple occupying tupleSize bytes
      */
     private int getHeaderSize() {
-        final double pageBytes = getNumTuples() / 8.0;
-        return (int) Math.round(pageBytes);
+        double pageBytes = getNumTuples() / 8.0;
+        // ceil
+        if (pageBytes > (int)pageBytes) {
+            pageBytes += 1;
+        }
+        return (int)pageBytes;
     }
 
     /**
