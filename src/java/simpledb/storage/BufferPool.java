@@ -100,7 +100,10 @@ public class BufferPool {
         if (tLock == null) {
             tLock = new TransactionLock(tid);
             // 避免并发同时到这里 有另一个线程先获取了锁
-            tLock = locks.putIfAbsent(pid, tLock);
+            TransactionLock currentLock = locks.putIfAbsent(pid, tLock);
+            if (currentLock != null){
+                tLock = currentLock;
+            }
         }
 
         switch (perm) {
@@ -126,7 +129,10 @@ public class BufferPool {
                     }
                 }
             }
-            page = buffer.putIfAbsent(pid, page);
+            Page currentPage = buffer.putIfAbsent(pid, page);
+            if (currentPage != null) {
+                page = currentPage;
+            }
         }
 
         return page;
