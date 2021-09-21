@@ -118,6 +118,10 @@ public class SeqScan implements OpIterator {
     }
 
     public void close() {
+        if (tupleIterator == null) {
+            // closed already. do nothing
+            return;
+        }
         tupleIterator.close();
         tupleIterator = null;
     }

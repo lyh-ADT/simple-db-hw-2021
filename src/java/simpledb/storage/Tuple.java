@@ -17,6 +17,16 @@ public class Tuple implements Serializable {
     private RecordId recordId;
     private Map<Integer, Field> fields;
 
+    public static Tuple merge(TupleDesc desc, Tuple ...tuples) {
+        Tuple merged = new Tuple(desc);
+        for (Tuple tuple : tuples) {
+            tuple.fields().forEachRemaining(f -> {
+                merged.setField(merged.fields.size(), f);
+            });
+        }
+        return merged;
+    }
+
     /**
      * Create a new tuple with the specified schema (type).
      *
