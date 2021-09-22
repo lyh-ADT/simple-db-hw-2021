@@ -45,6 +45,9 @@ public class TupleDesc implements Serializable {
             return result;
         }
 
+        /**
+         * 只比较type
+         */
         @Override
         public boolean equals(Object obj) {
             if (this == obj)
@@ -54,11 +57,6 @@ public class TupleDesc implements Serializable {
             if (getClass() != obj.getClass())
                 return false;
             TDItem other = (TDItem) obj;
-            if (fieldName == null) {
-                if (other.fieldName != null)
-                    return false;
-            } else if (!fieldName.equals(other.fieldName))
-                return false;
             if (fieldType != other.fieldType)
                 return false;
             return true;
