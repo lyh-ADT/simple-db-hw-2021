@@ -106,4 +106,42 @@ public class Tuple implements Serializable {
     public void resetTupleDesc(TupleDesc td) {
         desc = td;
     }
+
+    @Override
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + ((desc == null) ? 0 : desc.hashCode());
+        result = prime * result + ((fields == null) ? 0 : fields.hashCode());
+        result = prime * result + ((recordId == null) ? 0 : recordId.hashCode());
+        return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        Tuple other = (Tuple) obj;
+        if (desc == null) {
+            if (other.desc != null)
+                return false;
+        } else if (!desc.equals(other.desc))
+            return false;
+        if (fields == null) {
+            if (other.fields != null)
+                return false;
+        } else if (!fields.equals(other.fields))
+            return false;
+        if (recordId == null) {
+            if (other.recordId != null)
+                return false;
+        } else if (!recordId.equals(other.recordId))
+            return false;
+        return true;
+    }
+    
 }
