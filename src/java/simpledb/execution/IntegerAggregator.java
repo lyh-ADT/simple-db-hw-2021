@@ -1,7 +1,5 @@
 package simpledb.execution;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -13,6 +11,7 @@ import simpledb.storage.Field;
 import simpledb.storage.IntField;
 import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
+import simpledb.storage.UniqueField;
 import simpledb.transaction.TransactionAbortedException;
 
 /**
@@ -21,23 +20,6 @@ import simpledb.transaction.TransactionAbortedException;
 public class IntegerAggregator implements Aggregator {
 
     private static final long serialVersionUID = 1L;
-
-    private static final Field NO_GROUP_FIELD = new Field() {
-        @Override
-        public void serialize(DataOutputStream dos) throws IOException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean compare(simpledb.execution.Predicate.Op op, Field value) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Type getType() {
-            throw new UnsupportedOperationException();
-        }
-    };
 
     private int groupByFieldIndex;
     private Type groupByFieldType;
@@ -73,7 +55,7 @@ public class IntegerAggregator implements Aggregator {
     public void mergeTupleIntoGroup(Tuple tup) {
         Field gField;
         if (this.groupByFieldIndex == NO_GROUPING) {
-            gField = NO_GROUP_FIELD;
+            gField = UniqueField.getInstance();
         } else {
             gField = tup.getField(this.groupByFieldIndex);
         }
@@ -91,7 +73,7 @@ public class IntegerAggregator implements Aggregator {
      */
     public OpIterator iterator() {
         Map<Field, Integer> result = this.aggregator.result();
-        return new Iterator(result);
+        return new Iterator(groupByFieldType, result);
     }
 
     private void chooseAggregator() {
@@ -116,14 +98,14 @@ public class IntegerAggregator implements Aggregator {
         }
     }
 
-    class Iterator implements OpIterator {
+    public static class Iterator implements OpIterator {
         private Map<Field, Integer> result;
         private java.util.Iterator<Entry<Field, Integer>> iterator;
         private TupleDesc tupleDesc;
 
-        public Iterator(Map<Field, Integer> result) {
+        public Iterator(Type groupByFieldType, Map<Field, Integer> result) {
             this.result = result;
-            if (result.containsKey(NO_GROUP_FIELD)) {
+            if (result.containsKey(UniqueField.getInstance())) {
                 this.tupleDesc = new TupleDesc(new Type[] { Type.INT_TYPE });
             } else {
                 this.tupleDesc = new TupleDesc(new Type[] { groupByFieldType, Type.INT_TYPE });
@@ -150,7 +132,7 @@ public class IntegerAggregator implements Aggregator {
             }
             Entry<Field, Integer> entry = iterator.next();
             Tuple tuple = new Tuple(tupleDesc);
-            if (NO_GROUP_FIELD == entry.getKey()) {
+            if (UniqueField.getInstance() == entry.getKey()) {
                 tuple.setField(0, new IntField(entry.getValue()));
             } else {
                 tuple.setField(0, entry.getKey());
