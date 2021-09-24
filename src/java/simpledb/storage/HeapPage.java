@@ -357,7 +357,10 @@ public class HeapPage implements Page {
      *         iterator shouldn't return tuples in empty slots!)
      */
     public Iterator<Tuple> iterator() {
-        return Arrays.stream(tuples).filter(t -> t != null).iterator();
+        return Arrays.stream(tuples)    
+            .filter(t -> t != null)
+            .filter(t -> this.isSlotUsed(t.getRecordId().getTupleNumber()))
+            .iterator();
     }
 
     /**
