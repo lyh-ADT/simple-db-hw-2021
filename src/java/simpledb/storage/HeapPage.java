@@ -85,7 +85,6 @@ public class HeapPage implements Page {
      * @return the number of tuples on this page
      */
     private int getNumTuples() {
-        // some code goes here
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
         final int tupleBytes = dbFile.getTupleDesc().getSize();
         final int tuplePerPage = Math.floorDiv((BufferPool.getPageSize() * 8), (tupleBytes * 8 + 1));
