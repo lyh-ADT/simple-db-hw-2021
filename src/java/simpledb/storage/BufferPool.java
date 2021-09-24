@@ -1,6 +1,7 @@
 package simpledb.storage;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -106,13 +107,17 @@ public class BufferPool {
             }
         }
 
-        switch (perm) {
-            case READ_ONLY:
-                tLock.readLock().lock();
-                break;
-            case READ_WRITE:
-                tLock.writeLock().lock();
-                break;
+        // 同一个事务可以重入，所以不同的事务才需要获取锁
+        // 这里显然有问题，fix it later
+        if (!tLock.getId().equals(tid)) {
+            switch (perm) {
+                case READ_ONLY:
+                    tLock.readLock().lock();
+                    break;
+                case READ_WRITE:
+                    tLock.writeLock().lock();
+                    break;
+            }
         }
 
         Page page = buffer.get(pid);
@@ -197,8 +202,15 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> dirtyPages = dbFile.insertTuple(tid, t);
+        this.dirtyPages(dirtyPages);
+    }
+
+    private void dirtyPages(List<Page> dirtyPages) {
+        for (Page page : dirtyPages) {
+            buffer.put(page.getId(), page);
+        }
     }
 
     /**
@@ -215,8 +227,10 @@ public class BufferPool {
      * @param t   the tuple to delete
      */
     public void deleteTuple(TransactionId tid, Tuple t) throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        // not necessary for lab1
+        int tableId = t.getRecordId().getPageId().getTableId();
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> dirtyPages = dbFile.deleteTuple(tid, t);
+        this.dirtyPages(dirtyPages);
     }
 
     /**
