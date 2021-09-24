@@ -3,6 +3,7 @@ package simpledb.storage;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -238,9 +239,12 @@ public class BufferPool {
      * dirty data to disk so will break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        // some code goes here
-        // not necessary for lab1
-
+        for (Page page : buffer.values()) {
+            if (page.isDirty() == null) {
+                continue;
+            }
+            flushPage(page.getId());
+        }
     }
 
     /**
@@ -252,8 +256,7 @@ public class BufferPool {
      * cache so they can be reused safely
      */
     public synchronized void discardPage(PageId pid) {
-        // some code goes here
-        // not necessary for lab1
+        buffer.remove(pid);
     }
 
     /**
@@ -262,8 +265,15 @@ public class BufferPool {
      * @param pid an ID indicating the page to flush
      */
     private synchronized void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        Page page = buffer.get(pid);
+        if (page.isDirty() == null) {
+            // 没有脏数据，不用刷盘
+            return;
+        }
+
+        page.markDirty(false, null);
+        dbFile.writePage(page);
     }
 
     /**
@@ -279,8 +289,15 @@ public class BufferPool {
      * dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        int evictIndex = new Random().nextInt(buffer.size());
+        PageId evictId = buffer.keySet().stream().skip(evictIndex).findFirst().orElseThrow();
+        try {
+            flushPage(evictId);
+            buffer.remove(evictId);
+        } catch (IOException e) {
+            e.printStackTrace();
+            throw new DbException("IOException: " + e);
+        }
     }
 
 }
