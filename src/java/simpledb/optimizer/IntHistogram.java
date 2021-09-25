@@ -1,10 +1,19 @@
 package simpledb.optimizer;
 
+import java.util.HashMap;
+import java.util.Map.Entry;
+
 import simpledb.execution.Predicate;
 
 /** A class to represent a fixed-width histogram over a single integer-based field.
  */
 public class IntHistogram {
+
+    private final HashMap<Integer, Integer> buckets;
+    private final int minValue;
+    private final int maxValue;
+    private final int bucketSize;
+    private int totalCount;
 
     /**
      * Create a new IntHistogram.
@@ -23,7 +32,15 @@ public class IntHistogram {
      * @param max The maximum integer value that will ever be passed to this class for histogramming
      */
     public IntHistogram(int buckets, int min, int max) {
-    	// some code goes here
+        this.buckets = new HashMap<Integer, Integer>(buckets);
+        this.minValue = min;
+        this.maxValue = max;
+        this.bucketSize = (int)Math.ceil((max - min) / (double)buckets);
+        this.totalCount = 0;
+    }
+
+    private int calcValuePos(int value) {
+        return (value - minValue) / bucketSize;
     }
 
     /**
@@ -31,7 +48,13 @@ public class IntHistogram {
      * @param v Value to add to the histogram
      */
     public void addValue(int v) {
-    	// some code goes here
+        buckets.compute(calcValuePos(v), (k, oldValue) -> {
+            if (oldValue == null) {
+                oldValue = 0;
+            }
+            return oldValue + 1;
+        });
+        this.totalCount++;
     }
 
     /**
@@ -45,9 +68,83 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
+        ThreadLocal<Integer> count = new ThreadLocal<Integer>();
+        count.set(0);
 
-    	// some code goes here
-        return -1.0;
+        buckets.keySet().stream()
+            .filter(getFiter(op, v))
+            .forEach(k -> {
+                count.set(count.get() + buckets.get(k));
+            });
+        
+        Integer remainTupleCount = count.get();
+        if (op == Predicate.Op.EQUALS) {
+            remainTupleCount /= bucketSize;
+        }
+        return remainTupleCount / (double)totalCount;
+    }
+
+    private java.util.function.Predicate<Integer> getFiter(Predicate.Op op, int v) {
+        int key = calcValuePos(v);
+        switch(op) {
+            case EQUALS:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t.equals(key);
+                    }
+                    
+                };
+            case GREATER_THAN:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t > key;
+                    }
+                    
+                };
+            case GREATER_THAN_OR_EQ:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t >= key;
+                    }
+                    
+                };
+            case LESS_THAN:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t < key;
+                    }
+                    
+                };
+            case LESS_THAN_OR_EQ:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t <= key;
+                    }
+                    
+                };
+            case NOT_EQUALS:
+                return new java.util.function.Predicate<Integer>(){
+
+                    @Override
+                    public boolean test(Integer t) {
+                        return t != key;
+                    }
+                    
+                };
+            case LIKE:
+            default:
+                throw new UnsupportedOperationException();
+        }
     }
     
     /**
@@ -68,7 +165,11 @@ public class IntHistogram {
      * @return A string describing this histogram, for debugging purposes
      */
     public String toString() {
-        // some code goes here
-        return null;
+        StringBuilder sb = new StringBuilder("IntHistorgram{");
+        for (Entry<Integer, Integer> entry : buckets.entrySet()) {
+            sb.append(String.format("%s: %s\n", entry.getKey(), entry.getValue()));
+        }
+        sb.append("}");
+        return sb.toString();
     }
 }
