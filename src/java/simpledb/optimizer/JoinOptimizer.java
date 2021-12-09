@@ -3,7 +3,7 @@ package simpledb.optimizer;
 import simpledb.common.Database;
 import simpledb.ParsingException;
 import simpledb.execution.*;
-import simpledb.storage.TupleDesc;
+import simpledb.storage.DbFile;
 
 import java.util.*;
 
@@ -130,7 +130,16 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+
+            TableStats t1Stat = TableStats.getTableStats(j.t1Alias);
+            TableStats t2Stat = TableStats.getTableStats(j.t2Alias);
+
+            DbFile db1File = Database.getCatalog().getDatabaseFile(Database.getCatalog().getTableId(j.t1Alias));
+            DbFile db2File = Database.getCatalog().getDatabaseFile(Database.getCatalog().getTableId(j.t2Alias));
+
+            double t1Selectivity = t1Stat.avgSelectivity(db1File.getTupleDesc().fieldNameToIndex(j.f1PureName), j.p);
+            double t2Selectivity = t2Stat.avgSelectivity(db2File.getTupleDesc().fieldNameToIndex(j.f2PureName), j.p);
+            return (card1*t1Selectivity*cost1) + (card2*t2Selectivity*cost2);
         }
     }
 
@@ -174,9 +183,20 @@ public class JoinOptimizer {
                                                    String field2PureName, int card1, int card2, boolean t1pkey,
                                                    boolean t2pkey, Map<String, TableStats> stats,
                                                    Map<String, Integer> tableAliasToId) {
-        int card = 1;
-        // some code goes here
-        return card <= 0 ? 1 : card;
+        Integer table1Id = tableAliasToId.get(table1Alias);
+        Integer table2Id = tableAliasToId.get(table2Alias);
+
+        DbFile db1File = Database.getCatalog().getDatabaseFile(table1Id);
+        DbFile db2File = Database.getCatalog().getDatabaseFile(table2Id);
+
+        TableStats t1Stat = stats.get(Database.getCatalog().getTableName(table1Id));
+        TableStats t2Stat = stats.get(Database.getCatalog().getTableName(table2Id));
+        
+        double t1Selectivity = t1Stat.avgSelectivity(db1File.getTupleDesc().fieldNameToIndex(field1PureName), joinOp);
+        double t2Selectivity = t2Stat.avgSelectivity(db2File.getTupleDesc().fieldNameToIndex(field2PureName), joinOp);
+
+        double min = Math.min(card1 * t1Selectivity, card2 * t2Selectivity);
+        return (int)min;
     }
 
     /**
