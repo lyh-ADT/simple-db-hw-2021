@@ -4,6 +4,7 @@ out/
 *.db
 *.iml
 .idea/
+.vscode/
 .DS_Store
 *.zip
 dist/
