@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import simpledb.common.Database;
@@ -102,9 +103,9 @@ public class BufferPool {
 
             // 有可能同时有多个相同pid的READ_ONLY线程进入到这里，需要避免多次淘汰
             // double-check
-            if (buffer.size() == numPages - 1) {
+            if (buffer.size() == numPages) {
                 synchronized (this) {
-                    if (buffer.size() == numPages - 1) {
+                    if (buffer.size() == numPages) {
                         evictPage();
                     }
                 }
@@ -136,8 +137,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      */
     public void transactionComplete(TransactionId tid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
@@ -153,8 +153,22 @@ public class BufferPool {
      * @param commit a flag indicating whether we should commit or abort
      */
     public void transactionComplete(TransactionId tid, boolean commit) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        Set<PageId> writePages = lockManager.lockedWritePages(tid);
+        if (commit) {
+            try {
+                for (PageId pageId : writePages) {
+                    flushPage(pageId);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            writePages.forEach(buffer::remove);
+        }
+        writePages.forEach(pageId -> {
+            lockManager.releaseLock(pageId, tid);
+        });
+        lockManager.lockedReadPages(tid).forEach(pageId -> lockManager.releaseLock(pageId, tid));
     }
 
     /**
@@ -176,13 +190,18 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
         List<Page> dirtyPages = dbFile.insertTuple(tid, t);
-        this.dirtyPages(dirtyPages);
+        this.dirtyPages(dirtyPages, tid);
     }
 
-    private void dirtyPages(List<Page> dirtyPages) {
+    private void dirtyPages(List<Page> dirtyPages, TransactionId tid) {
         for (Page page : dirtyPages) {
+            page.markDirty(true, tid);
             buffer.put(page.getId(), page);
         }
+    }
+
+    public LockManager getLockManager() {
+        return lockManager;
     }
 
     /**
@@ -202,7 +221,7 @@ public class BufferPool {
         int tableId = t.getRecordId().getPageId().getTableId();
         DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
         List<Page> dirtyPages = dbFile.deleteTuple(tid, t);
-        this.dirtyPages(dirtyPages);
+        this.dirtyPages(dirtyPages, tid);
     }
 
     /**
@@ -260,8 +279,9 @@ public class BufferPool {
      * dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        int evictIndex = new Random().nextInt(buffer.size());
-        PageId evictId = buffer.keySet().stream().skip(evictIndex).findFirst().orElseThrow();
+        PageId evictId = buffer.keySet().stream().filter(k -> 
+            buffer.get(k).isDirty() == null
+        ).findAny().orElseThrow(()->new DbException("没有可以淘汰的缓存"));
         try {
             flushPage(evictId);
             buffer.remove(evictId);

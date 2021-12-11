@@ -70,14 +70,18 @@ public class HeapFile implements DbFile {
 
     // see DbFile.java for javadocs
     public Page readPage(PageId pid) {
-        // 检查是否是新建的page
-        if (this.newPages.containsKey(pid)) {
-            return this.newPages.get(pid);
-        }
         int offset = pid.getPageNumber() * BufferPool.getPageSize();
-        if (offset > file.length()) {
+        if (offset >= file.length()) {
+            // 检查是否是新建的page
+            if (this.newPages.containsKey(pid)) {
+                return this.newPages.get(pid);
+            }
             throw new IllegalArgumentException();
         }
+        
+        // 文件长度超过了pid指向的长度，说明新创建的页已经被持久化，可以从缓存中删除
+        newPages.remove(pid);
+        
         try (RandomAccessFile rf = new RandomAccessFile(file, "r");) {
             byte[] data = new byte[BufferPool.getPageSize()];
             rf.seek(offset);
@@ -102,7 +106,7 @@ public class HeapFile implements DbFile {
      * Returns the number of pages in this HeapFile.
      */
     public int numPages() {
-        return (int) file.length() / BufferPool.getPageSize() + this.newPages.size();
+        return diskNumPages() + this.newPages.size();
     }
 
     // see DbFile.java for javadocs
@@ -197,5 +201,9 @@ public class HeapFile implements DbFile {
 
         this.newPages.put(pageId, page);
         return page;
+    }
+    
+    private int diskNumPages() {
+        return (int) file.length() / BufferPool.getPageSize();
     }
 }

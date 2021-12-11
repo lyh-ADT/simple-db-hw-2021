@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import simpledb.transaction.TransactionId;
 
@@ -41,6 +42,22 @@ public class LockManager {
 
     public boolean holdsLock(TransactionId tid, PageId p) {
         return getLock(p).owners.contains(tid);
+    }
+
+    public Set<PageId> lockedWritePages(TransactionId tid) {
+        return locks.entrySet().stream()
+            .filter(entry -> entry.getValue().owners.contains(tid))
+            .filter(entry -> !entry.getValue().lockingRead)
+            .map(entry -> entry.getKey())
+            .collect(Collectors.toSet());
+    }
+
+    public Set<PageId> lockedReadPages(TransactionId tid) {
+        return locks.entrySet().stream()
+            .filter(entry -> entry.getValue().owners.contains(tid))
+            .filter(entry -> entry.getValue().lockingRead)
+            .map(entry -> entry.getKey())
+            .collect(Collectors.toSet());
     }
 
     private Lock getLock(PageId pid) {
