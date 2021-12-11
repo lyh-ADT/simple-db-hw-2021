@@ -3,7 +3,6 @@ package simpledb.optimizer;
 import simpledb.common.Database;
 import simpledb.ParsingException;
 import simpledb.execution.*;
-import simpledb.storage.DbFile;
 
 import java.util.*;
 
@@ -131,15 +130,7 @@ public class JoinOptimizer {
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
 
-            TableStats t1Stat = TableStats.getTableStats(j.t1Alias);
-            TableStats t2Stat = TableStats.getTableStats(j.t2Alias);
-
-            DbFile db1File = Database.getCatalog().getDatabaseFile(Database.getCatalog().getTableId(j.t1Alias));
-            DbFile db2File = Database.getCatalog().getDatabaseFile(Database.getCatalog().getTableId(j.t2Alias));
-
-            double t1Selectivity = t1Stat.avgSelectivity(db1File.getTupleDesc().fieldNameToIndex(j.f1PureName), j.p);
-            double t2Selectivity = t2Stat.avgSelectivity(db2File.getTupleDesc().fieldNameToIndex(j.f2PureName), j.p);
-            return (card1*t1Selectivity*cost1) + (card2*t2Selectivity*cost2);
+            return cost1 + card1 * cost2 + card1 * card2;
         }
     }
 
@@ -183,20 +174,22 @@ public class JoinOptimizer {
                                                    String field2PureName, int card1, int card2, boolean t1pkey,
                                                    boolean t2pkey, Map<String, TableStats> stats,
                                                    Map<String, Integer> tableAliasToId) {
-        Integer table1Id = tableAliasToId.get(table1Alias);
-        Integer table2Id = tableAliasToId.get(table2Alias);
-
-        DbFile db1File = Database.getCatalog().getDatabaseFile(table1Id);
-        DbFile db2File = Database.getCatalog().getDatabaseFile(table2Id);
-
-        TableStats t1Stat = stats.get(Database.getCatalog().getTableName(table1Id));
-        TableStats t2Stat = stats.get(Database.getCatalog().getTableName(table2Id));
-        
-        double t1Selectivity = t1Stat.avgSelectivity(db1File.getTupleDesc().fieldNameToIndex(field1PureName), joinOp);
-        double t2Selectivity = t2Stat.avgSelectivity(db2File.getTupleDesc().fieldNameToIndex(field2PureName), joinOp);
-
-        double min = Math.min(card1 * t1Selectivity, card2 * t2Selectivity);
-        return (int)min;
+        if (joinOp == Predicate.Op.EQUALS) {
+            if (t1pkey || t2pkey) {
+                if (t1pkey && t2pkey) {
+                    return Math.min(card1, card2);
+                }
+                if (t1pkey) {
+                    return card2;
+                } else {
+                    return card1;
+                }
+            } else {
+                return Math.max(card1, card2);
+            }
+        } else {
+            return (int) (0.3 * card1 * card2);
+        }
     }
 
     /**
@@ -256,9 +249,26 @@ public class JoinOptimizer {
             Map<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
 
-        // some code goes here
-        //Replace the following
-        return joins;
+        final PlanCache cache = new PlanCache();
+        for (int len = 1; len <= joins.size(); len++) {
+            for (Set<LogicalJoinNode> nodes : enumerateSubsets(joins ,len)) {
+                CostCard bestPlan = new CostCard();
+                bestPlan.cost = Double.MAX_VALUE;
+                for (LogicalJoinNode node : nodes) {
+                    CostCard costCard = computeCostAndCardOfSubplan(stats, filterSelectivities, node, nodes, bestPlan.cost, cache);
+                    if (costCard != null && bestPlan.cost > costCard.cost) {
+                        bestPlan = costCard;
+                    }
+                }
+                cache.addPlan(nodes, bestPlan.cost, bestPlan.card, bestPlan.plan);
+            }
+        }
+
+        List<LogicalJoinNode> plan = cache.getOrder(new HashSet<>(joins));
+        if (explain) {
+            printJoins(plan, cache, stats, filterSelectivities);
+        }
+        return plan;
     }
 
     // ===================== Private Methods =================================
@@ -293,7 +303,6 @@ public class JoinOptimizer {
      *             when stats, filterSelectivities, or pc object is missing
      *             tables involved in join
      */
-    @SuppressWarnings("unchecked")
     private CostCard computeCostAndCardOfSubplan(
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities,
