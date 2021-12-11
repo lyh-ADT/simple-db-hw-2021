@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import simpledb.common.Database;
 import simpledb.common.DbException;
@@ -39,21 +38,9 @@ public class BufferPool {
 
     private final int numPages;
 
-    private Map<PageId, TransactionLock> locks;
+    private final LockManager lockManager;
 
     private Map<PageId, Page> buffer;
-
-    static class TransactionLock extends ReentrantReadWriteLock {
-        private TransactionId id;
-
-        public TransactionLock(TransactionId id) {
-            this.id = id;
-        }
-
-        public TransactionId getId() {
-            return id;
-        }
-    }
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -62,8 +49,8 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         this.numPages = numPages;
-        locks = new ConcurrentHashMap<>();
         buffer = new ConcurrentHashMap<>();
+        lockManager = new LockManager();
     }
 
     public static int getPageSize() {
@@ -98,27 +85,14 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
-        TransactionLock tLock = locks.get(pid);
-        if (tLock == null) {
-            tLock = new TransactionLock(tid);
-            // 避免并发同时到这里 有另一个线程先获取了锁
-            TransactionLock currentLock = locks.putIfAbsent(pid, tLock);
-            if (currentLock != null){
-                tLock = currentLock;
-            }
-        }
 
-        // 同一个事务可以重入，所以不同的事务才需要获取锁
-        // 这里显然有问题，fix it later
-        if (!tLock.getId().equals(tid)) {
-            switch (perm) {
-                case READ_ONLY:
-                    tLock.readLock().lock();
-                    break;
-                case READ_WRITE:
-                    tLock.writeLock().lock();
-                    break;
-            }
+        switch (perm) {
+            case READ_ONLY:
+                lockManager.acquireReadLock(pid, tid);
+                break;
+            case READ_WRITE:
+                lockManager.acquireWriteLock(pid, tid);
+                break;
         }
 
         Page page = buffer.get(pid);
@@ -153,8 +127,7 @@ public class BufferPool {
      * @param pid the ID of the page to unlock
      */
     public void unsafeReleasePage(TransactionId tid, PageId pid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        lockManager.releaseLock(pid, tid);
     }
 
     /**
@@ -169,9 +142,7 @@ public class BufferPool {
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        return lockManager.holdsLock(tid, p);
     }
 
     /**
