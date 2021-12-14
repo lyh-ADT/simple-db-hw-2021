@@ -2,7 +2,6 @@ package simpledb.storage;
 
 import simpledb.common.Database;
 import simpledb.common.DbException;
-import simpledb.common.Debug;
 import simpledb.common.Permissions;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
@@ -144,10 +143,10 @@ public class HeapFile implements DbFile {
 
             @Override
             public void open() throws DbException, TransactionAbortedException {
-                pid = 0;
-                HeapPageId hPid = new HeapPageId(HeapFile.this.getId(), pid);
-                page = (HeapPage) Database.getBufferPool().getPage(tid, hPid, Permissions.READ_ONLY);
-                iterator = page.iterator();
+                pid = -1;
+                if (allowRead()) {
+                    openNextPage();
+                }
             }
 
             @Override
@@ -160,6 +159,9 @@ public class HeapFile implements DbFile {
                     return true;
                 }
                 if (pid >= HeapFile.this.numPages() - 1) {
+                    return false;
+                }
+                if (!allowRead()) {
                     return false;
                 }
                 openNextPage();
@@ -188,6 +190,15 @@ public class HeapFile implements DbFile {
                 HeapPageId hPid = new HeapPageId(HeapFile.this.getId(), ++pid);
                 page = (HeapPage) Database.getBufferPool().getPage(tid, hPid, Permissions.READ_ONLY);
                 iterator = page.iterator();
+            }
+
+            private boolean allowRead() {
+                if (pid+1 >= HeapFile.this.diskNumPages()) {
+                    // 下一页是新创建的页，要考虑事务隔离
+                    HeapPageId hPid = new HeapPageId(HeapFile.this.getId(), pid+1);
+                    return Database.getBufferPool().holdsLock(tid, hPid);
+                }
+                return true;
             }
         };
     }

@@ -2,41 +2,47 @@ package simpledb.storage;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
-/**
- * 
- * Map<TransactionId, Set<PageLock>> 一个事务可以持有多个页的锁
- * Map<PageId, Set<TransactionLock>> 一个页的读锁可以被多个事务持有
- * 
- * getPage -> pid -> lock
- * commit -> tid -> pid
- * 
- */
 public class LockManager {
     private final Map<PageId, Lock> locks = new HashMap<>();
+    private final DeadLockDetector detector = new DeadLockDetector();
 
     /**
      * 通过tid获取对应pid的读锁，一直阻塞直到获取到为止
+     * @throws TransactionAbortedException
      */
-    public synchronized void acquireReadLock(PageId pid, TransactionId tid) {
+    public void acquireReadLock(PageId pid, TransactionId tid) throws TransactionAbortedException {
         Lock lock = getLock(pid);
+        if (detector.waitFor(tid, pid)) {
+            throw new TransactionAbortedException();
+        }
         lock.readLock(tid);
+        detector.lockGranted(tid, pid);
     }
 
     /**
      * 通过tid获取对应pid的写锁，一直阻塞直到获取到为止
+     * @throws TransactionAbortedException
      */
-    public synchronized void acquireWriteLock(PageId pid, TransactionId tid) {
+    public void acquireWriteLock(PageId pid, TransactionId tid) throws TransactionAbortedException {
         Lock lock = getLock(pid);
+        if (detector.waitFor(tid, pid)) {
+            throw new TransactionAbortedException();
+        }
         lock.writeLock(tid);
+        detector.lockGranted(tid, pid);
     }
 
-    public synchronized void releaseLock(PageId pid, TransactionId tid) {
+    public  void releaseLock(PageId pid, TransactionId tid) {
         getLock(pid).releaseLock(tid);
     }
 
@@ -60,7 +66,7 @@ public class LockManager {
             .collect(Collectors.toSet());
     }
 
-    private Lock getLock(PageId pid) {
+    private synchronized Lock getLock(PageId pid) {
         Lock lock = locks.get(pid);
         if (lock == null) {
             lock = new Lock();
@@ -70,8 +76,8 @@ public class LockManager {
     }
 
     class Lock {
-        private Set<TransactionId> owners = new HashSet<>();
-        private boolean lockingRead = true;
+        private volatile Set<TransactionId> owners = ConcurrentHashMap.newKeySet();
+        private volatile boolean lockingRead = true;
 
         public void readLock(TransactionId tid) {
             if (owners.isEmpty()) {
@@ -81,12 +87,16 @@ public class LockManager {
                 owners.add(tid);
                 return;
             }
-            // 有人持有writeLock
-            // 如果tid已经持有写锁，那么默认获取读锁
-            if (owners.contains(tid)) {
+            if (canUpgradeOrReenter(tid)) {
                 return;
             }
-            while (!owners.isEmpty()) {
+            // 有人持有writeLock
+            while (!owners.isEmpty() && !canUpgradeOrReenter(tid)) {
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
             readLock(tid);
         }
@@ -94,27 +104,100 @@ public class LockManager {
         public void writeLock(TransactionId tid) {
             if (owners.isEmpty()) {
                 lockingRead = false;
-            }
-            if (!lockingRead) {
                 owners.add(tid);
                 return;
             }
             // 有人持有readLock
-            // 如果持有者是同一个可以升级
-            if (owners.size() == 1 && owners.contains(tid)) {
-                lockingRead = true;
-                return;
+            while (!owners.isEmpty() && !canUpgradeOrReenter(tid)) {
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
-            while (!owners.isEmpty()) {
-            }
-            writeLock(tid);
+            lockingRead = false;
+            owners.add(tid);
         }
 
-        public void releaseLock(TransactionId tid) {
-            if (!owners.contains(tid)) {
-                throw new IllegalStateException(String.format("%s事务", tid));
-            }
+        public synchronized void releaseLock(TransactionId tid) {
             owners.remove(tid);
+        }
+
+        private boolean canUpgradeOrReenter(TransactionId tid) {
+            // 如果持有者是同一个可以升级
+            // 如果tid已经持有写锁，那么默认获取读锁
+            return owners.size() == 1 && owners.contains(tid);
+        }
+    }
+
+    class DeadLockDetector {
+        private Map<TransactionId, Set<PageId>> waitForMap = new ConcurrentHashMap<>();
+
+
+        public synchronized boolean waitFor(TransactionId tid, PageId pid) {
+            waitForMap.compute(tid, (k, v)->{
+                if (v == null) {
+                    v = new HashSet<>();
+                }
+                v.add(pid);
+                return v;
+            });
+
+            Lock lock = locks.get(pid);
+            
+            Set<PageId> heldLocks = lockedReadPages(tid);
+            heldLocks.addAll(lockedWritePages(tid));
+
+            if (hasLoop(lock.owners, heldLocks)) {
+                // 不让他等待，也就是他不在等待了，和拿到锁是一样的
+                lockGranted(tid, pid);
+                return true;
+            }
+            return false;
+        }
+
+        public synchronized void lockGranted(TransactionId tid, PageId pid) {
+            Set<PageId> waiting = waitForMap.get(tid);
+            waiting.remove(pid);
+            if (waiting.isEmpty()) {
+                waitForMap.remove(tid);
+            }
+        }
+
+        private boolean hasLoop(Set<TransactionId> waiters, Set<PageId> target) {
+            // bfs
+            Set<TransactionId> checked = new HashSet<>();
+            Queue<TransactionId> queue = new LinkedList<>();
+            queue.addAll(waiters);
+
+            while(!queue.isEmpty()) {
+                TransactionId current = queue.poll();
+                checked.add(current);
+
+                Set<PageId> waiting = waitForMap.get(current);
+                if (waiting == null) {
+                    continue;
+                }
+                for (PageId pId : waiting) {
+                    for (TransactionId t : locks.get(pId).owners) {
+                        // 只有正在等待锁的事务才需要检查
+                        if (!waitForMap.containsKey(t)) {
+                            continue;
+                        }
+                        // 自己占有的锁可以重入
+                        if (current.equals(t)) {
+                            continue;
+                        }
+                        if (checked.contains(t)) {
+                            // 有环！
+                            return true;
+                        } else {
+                            queue.add(t);
+                        }
+                    }
+                }
+            }
+            return false;
         }
     }
 }

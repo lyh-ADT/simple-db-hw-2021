@@ -3,7 +3,6 @@ package simpledb.storage;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -257,7 +256,7 @@ public class BufferPool {
     private synchronized void flushPage(PageId pid) throws IOException {
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
         Page page = buffer.get(pid);
-        if (page.isDirty() == null) {
+        if (page == null || page.isDirty() == null) {
             // 没有脏数据，不用刷盘
             return;
         }
