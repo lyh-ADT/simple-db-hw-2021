@@ -187,8 +187,34 @@ public class BTreeFile implements DbFile {
 	private BTreeLeafPage findLeafPage(TransactionId tid, Map<PageId, Page> dirtypages, BTreePageId pid, Permissions perm,
                                        Field f)
 					throws DbException, TransactionAbortedException {
-		// some code goes here
-        return null;
+		
+		if (pid.pgcateg() == BTreePageId.LEAF) {
+			return (BTreeLeafPage)Database.getBufferPool().getPage(tid, pid, perm);
+		}
+
+		Page page = (BTreePage)Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+		if (pid.pgcateg() == BTreePageId.ROOT_PTR) {
+			assert page instanceof BTreeRootPtrPage;
+			BTreeRootPtrPage p = (BTreeRootPtrPage)page;
+			return findLeafPage(tid, dirtypages, p.getHeaderId(), perm, f);
+		} else if (pid.pgcateg() == BTreePageId.HEADER) {
+			assert page instanceof BTreeHeaderPage;
+			BTreeHeaderPage p = (BTreeHeaderPage) page;
+			return findLeafPage(tid, dirtypages, p.getNextPageId(), perm, f);
+		} else if (pid.pgcateg() == BTreePageId.INTERNAL) {
+			assert page instanceof BTreeInternalPage;
+			BTreeInternalPage p = (BTreeInternalPage) page;
+			Iterator<BTreeEntry> it = p.iterator();
+			while(it.hasNext()) {
+				BTreeEntry entry = it.next();
+				if (f == null || entry.getKey().compare(Op.GREATER_THAN, f)) {
+					return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
+				} else {
+					return findLeafPage(tid, dirtypages, entry.getRightChild(), perm, f);
+				}
+			}
+		}
+		throw new DbException("非法的BTreePageId分类");
 	}
 	
 	/**
