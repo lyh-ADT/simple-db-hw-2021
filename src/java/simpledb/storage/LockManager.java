@@ -145,10 +145,7 @@ public class LockManager {
 
             Lock lock = locks.get(pid);
             
-            Set<PageId> heldLocks = lockedReadPages(tid);
-            heldLocks.addAll(lockedWritePages(tid));
-
-            if (hasLoop(lock.owners, heldLocks)) {
+            if (hasLoop(lock.owners)) {
                 // 不让他等待，也就是他不在等待了，和拿到锁是一样的
                 lockGranted(tid, pid);
                 return true;
@@ -164,7 +161,7 @@ public class LockManager {
             }
         }
 
-        private boolean hasLoop(Set<TransactionId> waiters, Set<PageId> target) {
+        private boolean hasLoop(Set<TransactionId> waiters) {
             // bfs
             Set<TransactionId> checked = new HashSet<>();
             Queue<TransactionId> queue = new LinkedList<>();
