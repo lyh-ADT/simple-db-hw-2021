@@ -294,7 +294,6 @@ public class BTreeFile implements DbFile {
 		if (page.getNumTuples() < page.getMaxTuples()) {
 			return page;
 		}
-		dirtypages.put(page.pid, page);
 		final int max = page.getMaxTuples();
 		final int splitPos = max / 2 + 1;
 		final BTreeLeafPage rightPage = (BTreeLeafPage) getEmptyPage(tid, dirtypages, BTreePageId.LEAF);
@@ -332,6 +331,7 @@ public class BTreeFile implements DbFile {
 		final BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), e.getKey());
 		parent.insertEntry(e);
 		
+		// 由于parent可能也需要split，所以原page的parent有可能发生变化，需要获取新的parent之后再赋值
 		rightPage.setParentId(parent.pid);
 
 		if (midTuple.getField(page.keyField).compare(Op.GREATER_THAN, field)) {
@@ -376,7 +376,6 @@ public class BTreeFile implements DbFile {
 		if (page.getNumEntries() < page.getMaxEntries()) {
 			return page;
 		}
-		dirtypages.put(page.pid, page);
 		final int max = page.getMaxEntries();
 		final int splitPos = max / 2 + 1;
 		final BTreeInternalPage rightPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
@@ -409,6 +408,7 @@ public class BTreeFile implements DbFile {
 		parent.insertEntry(copy);
 		page.deleteKeyAndRightChild(e);
 
+		// 由于parent可能也需要split，所以原page的parent有可能发生变化，需要获取新的parent之后再赋值
 		rightPage.setParentId(parent.pid);
 
 		if (e.getKey().compare(Op.GREATER_THAN, field)) {
