@@ -38,6 +38,12 @@ public class Tuple implements Serializable {
         this.fields = new HashMap<>(td.numFields());
     }
 
+    public Tuple(Tuple t) {
+        desc = t.desc;
+        recordId = t.recordId;
+        fields = t.fields;
+    }
+
     /**
      * @return The TupleDesc representing the schema of this tuple.
      */

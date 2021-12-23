@@ -55,6 +55,10 @@ public class BTreeEntry implements Serializable {
 		this.leftChild = leftChild;
 		this.rightChild = rightChild;
 	}
+
+	public BTreeEntry(BTreeEntry entry) {
+		this(entry.key, entry.leftChild, entry.rightChild);
+	}
 	
 	/**
 	 * @return the key
