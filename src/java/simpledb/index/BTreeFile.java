@@ -783,11 +783,30 @@ public class BTreeFile implements DbFile {
 	public void stealFromLeftInternalPage(TransactionId tid, Map<PageId, Page> dirtypages,
 			BTreeInternalPage page, BTreeInternalPage leftSibling, BTreeInternalPage parent,
 			BTreeEntry parentEntry) throws DbException, TransactionAbortedException {
-		// some code goes here
         // Move some of the entries from the left sibling to the page so
 		// that the entries are evenly distributed. Be sure to update
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
+		int numNeedMove = (page.getNumEntries() + leftSibling.getNumEntries() + 1) / 2 - page.getNumEntries();
+		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), leftSibling.getChildId(leftSibling.getNumEntries()), page.getChildId(0));
+		page.insertEntry(e);
+		numNeedMove--;
+		Iterator<BTreeEntry> iterator = leftSibling.reverseIterator();
+		for (int i = 0; i < numNeedMove-1; i++) {
+			if (!iterator.hasNext()) {
+				throw new DbException("数量不对");
+			}
+			BTreeEntry entry = iterator.next();
+			BTreeEntry copy = new BTreeEntry(entry);
+			page.insertEntry(copy);
+			leftSibling.deleteKeyAndRightChild(entry);
+		}
+		updateParentPointers(tid, dirtypages, page);
+
+		BTreeEntry newKey = iterator.next();
+		parentEntry.setKey(newKey.getKey());
+		parent.updateEntry(parentEntry);
+		leftSibling.deleteKeyAndRightChild(newKey);
 	}
 	
 	/**
@@ -810,11 +829,30 @@ public class BTreeFile implements DbFile {
 	public void stealFromRightInternalPage(TransactionId tid, Map<PageId, Page> dirtypages,
 			BTreeInternalPage page, BTreeInternalPage rightSibling, BTreeInternalPage parent,
 			BTreeEntry parentEntry) throws DbException, TransactionAbortedException {
-		// some code goes here
         // Move some of the entries from the right sibling to the page so
 		// that the entries are evenly distributed. Be sure to update
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
+		int numNeedMove = (page.getNumEntries() + rightSibling.getNumEntries() + 1) / 2 - page.getNumEntries();
+		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), page.getChildId(page.getNumEntries()), rightSibling.getChildId(0));
+		page.insertEntry(e);
+		numNeedMove--;
+		Iterator<BTreeEntry> iterator = rightSibling.iterator();
+		for (int i = 0; i < numNeedMove-1; i++) {
+			if (!iterator.hasNext()) {
+				throw new DbException("数量不对");
+			}
+			BTreeEntry entry = iterator.next();
+			BTreeEntry copy = new BTreeEntry(entry);
+			page.insertEntry(copy);
+			rightSibling.deleteKeyAndLeftChild(entry);
+		}
+		updateParentPointers(tid, dirtypages, page);
+
+		BTreeEntry newKey = iterator.next();
+		parentEntry.setKey(newKey.getKey());
+		parent.updateEntry(parentEntry);
+		rightSibling.deleteKeyAndLeftChild(newKey);
 	}
 	
 	/**
