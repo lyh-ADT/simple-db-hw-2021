@@ -303,14 +303,7 @@ public class BTreeFile implements DbFile {
 			if (!iterator.hasNext()) {
 				throw new DbException("数量不对");
 			}
-			Tuple t = iterator.next();
-			Tuple copy = new Tuple(t);
-			try {
-				rightPage.insertTuple(copy);
-				page.deleteTuple(t);
-			} catch (DbException e) {
-				e.printStackTrace();
-			}
+			moveTuple(iterator.next(), page, rightPage);
 		}
 		
 		// 连接左右叶子
@@ -702,11 +695,20 @@ public class BTreeFile implements DbFile {
 	 */
 	public void stealFromLeafPage(BTreeLeafPage page, BTreeLeafPage sibling,
 			BTreeInternalPage parent, BTreeEntry entry, boolean isRightSibling) throws DbException {
-		// some code goes here
-        //
         // Move some of the tuples from the sibling to the page so
 		// that the tuples are evenly distributed. Be sure to update
 		// the corresponding parent entry.
+		final int numNeedMove = (page.getNumTuples() + sibling.getNumTuples()) / 2 - page.getNumTuples();
+		Iterator<Tuple> iterator = isRightSibling ? sibling.iterator() : sibling.reverseIterator();
+		for (int i = 0; i < numNeedMove; i++) {
+			if (!iterator.hasNext()) {
+				throw new DbException("数量不够");
+			}
+			moveTuple(iterator.next(), sibling, page);
+		}
+		Tuple newKey = page.getTuple(isRightSibling ? page.getNumTuples()-1 : 0);
+		entry.setKey(newKey.getField(page.keyField));
+		parent.updateEntry(entry);
 	}
 
 	/**
@@ -1191,6 +1193,12 @@ public class BTreeFile implements DbFile {
 		return new BTreeFileIterator(this, tid);
 	}
 
+	
+	private void moveTuple(Tuple tuple, BTreeLeafPage from, BTreeLeafPage to) throws DbException {
+		Tuple copy = new Tuple(tuple);
+		to.insertTuple(copy);
+		from.deleteTuple(tuple);
+	}
 }
 
 /**
