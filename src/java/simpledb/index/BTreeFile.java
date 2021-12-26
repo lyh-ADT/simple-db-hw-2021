@@ -876,13 +876,17 @@ public class BTreeFile implements DbFile {
 	public void mergeLeafPages(TransactionId tid, Map<PageId, Page> dirtypages,
 			BTreeLeafPage leftPage, BTreeLeafPage rightPage, BTreeInternalPage parent, BTreeEntry parentEntry) 
 					throws DbException, IOException, TransactionAbortedException {
-
-		// some code goes here
-        //
 		// Move all the tuples from the right page to the left page, update
 		// the sibling pointers, and make the right page available for reuse.
 		// Delete the entry in the parent corresponding to the two pages that are merging -
 		// deleteParentEntry() will be useful here
+		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
+		Iterator<Tuple> iterator = rightPage.iterator();
+		while (iterator.hasNext()) {
+			moveTuple(iterator.next(), rightPage, leftPage);
+		}
+		leftPage.setRightSiblingId(null);
+		setEmptyPage(tid, dirtypages, rightPage.getId().getPageNumber());
 	}
 
 	/**
