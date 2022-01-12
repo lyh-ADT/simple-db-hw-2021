@@ -1,6 +1,5 @@
 package simpledb.storage;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Map;
@@ -13,7 +12,7 @@ import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 public class LockManager {
-    private final Map<PageId, Lock> locks = new HashMap<>();
+    private final Map<PageId, Lock> locks = new ConcurrentHashMap<>();
     private final DeadLockDetector detector = new DeadLockDetector();
 
     /**
@@ -22,6 +21,9 @@ public class LockManager {
      */
     public void acquireReadLock(PageId pid, TransactionId tid) throws TransactionAbortedException {
         Lock lock = getLock(pid);
+        if (lock.owners.contains(tid)) {
+            return;
+        }
         if (detector.waitFor(tid, pid)) {
             throw new TransactionAbortedException();
         }
@@ -132,7 +134,6 @@ public class LockManager {
 
     class DeadLockDetector {
         private Map<TransactionId, Set<PageId>> waitForMap = new ConcurrentHashMap<>();
-
 
         public synchronized boolean waitFor(TransactionId tid, PageId pid) {
             waitForMap.compute(tid, (k, v)->{
