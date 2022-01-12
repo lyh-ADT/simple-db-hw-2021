@@ -157,6 +157,10 @@ public class BufferPool {
             try {
                 for (PageId pageId : writePages) {
                     flushPage(pageId);
+                    
+                    // use current page contents as the before-image
+                    // for the next transaction that modifies this page.
+                    buffer.get(pageId).setBeforeImage();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -259,6 +263,14 @@ public class BufferPool {
         if (page == null || page.isDirty() == null) {
             // 没有脏数据，不用刷盘
             return;
+        }
+
+        // append an update record to the log, with 
+        // a before-image and after-image.
+        TransactionId dirtier = page.isDirty();
+        if (dirtier != null){
+            Database.getLogFile().logWrite(dirtier, page.getBeforeImage(), page);
+            Database.getLogFile().force();
         }
 
         page.markDirty(false, null);
