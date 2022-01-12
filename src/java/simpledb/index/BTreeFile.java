@@ -706,7 +706,7 @@ public class BTreeFile implements DbFile {
 			}
 			moveTuple(iterator.next(), sibling, page);
 		}
-		Tuple newKey = page.getTuple(isRightSibling ? page.getNumTuples()-1 : 0);
+		Tuple newKey = isRightSibling ? page.reverseIterator().next(): page.iterator().next();
 		entry.setKey(newKey.getField(page.keyField));
 		parent.updateEntry(entry);
 	}
@@ -788,7 +788,7 @@ public class BTreeFile implements DbFile {
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
 		int numNeedMove = (page.getNumEntries() + leftSibling.getNumEntries() + 1) / 2 - page.getNumEntries();
-		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), leftSibling.getChildId(leftSibling.getNumEntries()), page.getChildId(0));
+		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), lastEntry(leftSibling).getRightChild(), firstEntry(page).getLeftChild());
 		page.insertEntry(e);
 		numNeedMove--;
 		Iterator<BTreeEntry> iterator = leftSibling.reverseIterator();
@@ -834,7 +834,7 @@ public class BTreeFile implements DbFile {
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
 		int numNeedMove = (page.getNumEntries() + rightSibling.getNumEntries() + 1) / 2 - page.getNumEntries();
-		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), page.getChildId(page.getNumEntries()), rightSibling.getChildId(0));
+		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), lastEntry(page).getRightChild(), firstEntry(rightSibling).getLeftChild());
 		page.insertEntry(e);
 		numNeedMove--;
 		Iterator<BTreeEntry> iterator = rightSibling.iterator();
@@ -880,13 +880,18 @@ public class BTreeFile implements DbFile {
 		// the sibling pointers, and make the right page available for reuse.
 		// Delete the entry in the parent corresponding to the two pages that are merging -
 		// deleteParentEntry() will be useful here
-		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
 		Iterator<Tuple> iterator = rightPage.iterator();
 		while (iterator.hasNext()) {
 			moveTuple(iterator.next(), rightPage, leftPage);
 		}
-		leftPage.setRightSiblingId(null);
+		BTreePageId rightSiblingId = rightPage.getRightSiblingId();
+		leftPage.setRightSiblingId(rightSiblingId);
+		if (rightSiblingId != null) {
+			((BTreeLeafPage)getPage(tid, dirtypages, rightSiblingId, Permissions.READ_WRITE))
+				.setLeftSiblingId(leftPage.getId());
+		}
 		setEmptyPage(tid, dirtypages, rightPage.getId().getPageNumber());
+		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
 	}
 
 	/**
@@ -912,14 +917,31 @@ public class BTreeFile implements DbFile {
 	public void mergeInternalPages(TransactionId tid, Map<PageId, Page> dirtypages,
 			BTreeInternalPage leftPage, BTreeInternalPage rightPage, BTreeInternalPage parent, BTreeEntry parentEntry) 
 					throws DbException, IOException, TransactionAbortedException {
-		
-		// some code goes here
-        //
         // Move all the entries from the right page to the left page, update
 		// the parent pointers of the children in the entries that were moved, 
 		// and make the right page available for reuse
 		// Delete the entry in the parent corresponding to the two pages that are merging -
 		// deleteParentEntry() will be useful here
+		BTreeEntry e = new BTreeEntry(parentEntry.getKey(), lastEntry(leftPage).getRightChild(), firstEntry(rightPage).getLeftChild());
+		leftPage.insertEntry(e);
+		Iterator<BTreeEntry> iterator = rightPage.iterator();
+		while(iterator.hasNext()) {
+			BTreeEntry entry = iterator.next();
+			BTreeEntry copy = new BTreeEntry(entry);
+			leftPage.insertEntry(copy);
+			rightPage.deleteKeyAndLeftChild(entry);
+		}
+		updateParentPointers(tid, dirtypages, leftPage);
+		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
+		setEmptyPage(tid, dirtypages, rightPage.getId().getPageNumber());
+	}
+
+	private BTreeEntry lastEntry(BTreeInternalPage page) {
+		return page.reverseIterator().next();
+	}
+
+	private BTreeEntry firstEntry(BTreeInternalPage page) {
+		return page.iterator().next();
 	}
 	
 	/**
