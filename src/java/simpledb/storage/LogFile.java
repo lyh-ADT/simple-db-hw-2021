@@ -71,7 +71,33 @@ of the record is an integer count of the number of transactions, as well
 as a long integer transaction id and a long integer first record offset
 for each active transaction.
 
+
 </ul>
+
+文件格式：
+<pre>
+(int)checkpointOffset
+(int)type
+(long)tid
+update{
+    before-iamge{
+        (string)pageClassName
+        (string)pidClassName
+        (int)pidDataLength
+        (int[])pidData
+        (int)pageDataLength
+        (byte[])pageData
+    }
+    after-iamge{
+        (string)pageClassName
+        (string)pidClassName
+        (int)pidDataLength
+        (int[])pidData
+        (int)pageDataLength
+        (byte[])pageData
+    }
+(long)offset
+</pre>
 */
 public class LogFile {
 
@@ -459,7 +485,16 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized(this) {
                 preAppend();
-                // some code goes here
+                
+                raf.seek(tidToFirstLogRecord.get(tid.getId()));
+                Record record = parseRecord();
+                while (record != null) {
+                    if (record.tid == tid.getId() && record.type == UPDATE_RECORD) {
+                        UpdateRecord uRecord = (UpdateRecord) record;
+                        rollbackPage(tid, uRecord.beforeImage);
+                    }
+                    record = parseRecord();
+                }
             }
         }
     }
@@ -571,4 +606,75 @@ public class LogFile {
         raf.getChannel().force(true);
     }
 
+
+    class Record {
+        protected final int type;
+        protected final long tid;
+        protected final long offset;
+
+        public Record(int type, long tid, long offset) {
+            this.type = type;
+            this.tid = tid;
+            this.offset = offset;
+        }
+    }
+
+    class CheckpointRecord extends Record {
+        private final Map<Long, Long> tidToFirstLogRecord;
+        public CheckpointRecord(int type, long offset, Map<Long, Long> tidToFirstLogRecord) {
+            super(type, -1, offset);
+            this.tidToFirstLogRecord = tidToFirstLogRecord;
+        }
+
+    }
+
+    class UpdateRecord extends Record {
+        private final Page beforeImage;
+        private final Page afterImage;
+
+        public UpdateRecord(int type, long tid, long offset, Page beforeImage, Page afterImage) {
+            super(type, tid, offset);
+            this.beforeImage = beforeImage;
+            this.afterImage = afterImage;
+        }
+    }
+
+    private Record parseRecord() throws IOException {
+        if (raf.length() == raf.getFilePointer()) {
+            return null;
+        }
+
+        int type = raf.readInt();
+        
+        if (type == CHECKPOINT_RECORD) {
+            final int size = raf.readInt();
+            HashMap<Long, Long> map = new HashMap<>();
+            for (int i = 0; i < size; i++) {
+                long tid = raf.readLong();
+                long offset = raf.readLong();
+                map.put(tid, offset);
+            }
+            long offset = raf.readLong();
+            return new CheckpointRecord(type, offset, tidToFirstLogRecord);
+        }
+
+        long tid = raf.readLong();
+
+        if (type == UPDATE_RECORD) {
+            Page beforeImage = readPageData(raf);
+            Page afterImage = readPageData(raf);
+            long offset = raf.readLong();
+            return new UpdateRecord(type, tid, offset, beforeImage, afterImage);
+        }
+
+        long offset = raf.readLong();
+        return new Record(type, tid, offset);
+    }
+
+    private void rollbackPage(TransactionId tid, Page page) throws IOException {
+        PageId pid = page.getId();
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        dbFile.writePage(page);
+        Database.getBufferPool().discardPage(pid);
+    }
 }
