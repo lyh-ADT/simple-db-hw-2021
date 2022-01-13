@@ -48,6 +48,13 @@ public class Catalog {
      */
     public void addTable(DbFile file, String name, String pkeyField) {
         tables.put(file.getId(), file);
+        try {
+            int duplicateTableNameId = getTableId(name);
+            Debug.log("table name duplicated!! name: %s", name);
+            tableNames.put(tables.get(duplicateTableNameId), "");
+        } catch (NoSuchElementException e ) {
+            // do nothing
+        }
         tableNames.put(file, name);
         tablePrimaryKey.put(file, pkeyField);
     }
