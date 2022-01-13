@@ -160,7 +160,10 @@ public class BufferPool {
                     
                     // use current page contents as the before-image
                     // for the next transaction that modifies this page.
-                    buffer.get(pageId).setBeforeImage();
+                    Page page = buffer.get(pageId);
+                    if (page != null) {
+                        page.setBeforeImage();
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
