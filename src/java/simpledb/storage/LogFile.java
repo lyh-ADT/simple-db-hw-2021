@@ -7,7 +7,9 @@ import simpledb.common.Debug;
 
 import java.io.*;
 import java.util.*;
+import java.util.Map.Entry;
 import java.lang.reflect.*;
+import java.rmi.UnexpectedException;
 
 /*
 LogFile implements the recovery subsystem of SimpleDb.  This class is
@@ -76,7 +78,7 @@ for each active transaction.
 
 文件格式：
 <pre>
-(int)checkpointOffset
+(long)checkpointOffset
 (int)type
 (long)tid
 update{
@@ -487,15 +489,19 @@ public class LogFile {
                 preAppend();
                 
                 raf.seek(tidToFirstLogRecord.get(tid.getId()));
-                Record record = parseRecord();
-                while (record != null) {
-                    if (record.tid == tid.getId() && record.type == UPDATE_RECORD) {
-                        UpdateRecord uRecord = (UpdateRecord) record;
-                        rollbackPage(tid, uRecord.beforeImage);
-                    }
-                    record = parseRecord();
-                }
+                rollbackTransaction(tid.getId());
             }
+        }
+    }
+
+    private void rollbackTransaction(long tid) throws IOException {
+        Record record = parseRecord();
+        while (record != null) {
+            if (record.tid == tid && record.type == UPDATE_RECORD) {
+                UpdateRecord uRecord = (UpdateRecord) record;
+                rollbackPage(uRecord.beforeImage);
+            }
+            record = parseRecord();
         }
     }
 
@@ -521,10 +527,27 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized (this) {
                 recoveryUndecided = false;
-                // some code goes here
+                
+                // 获取checkpoint位置
+                raf.seek(0);
+                long checkpointOffset = raf.readLong();
+                if (checkpointOffset != NO_CHECKPOINT_ID) {
+                    raf.seek(checkpointOffset);
+                    CheckpointRecord checkpoint = (CheckpointRecord) parseRecord();
+                 
+                    recoverRecords();
+                 
+                    for(Entry<Long, Long> tidFirstRecord : checkpoint.tidToFirstLogRecord.entrySet()) {
+                        raf.seek(tidFirstRecord.getValue());
+                        rollbackTransaction(tidFirstRecord.getKey());
+                    }
+                } else {
+                    recoverRecords();
+                }
             }
          }
     }
+
 
     /** Print out a human readable represenation of the log */
     public void print() throws IOException {
@@ -617,6 +640,11 @@ public class LogFile {
             this.tid = tid;
             this.offset = offset;
         }
+
+        @Override
+        public String toString() {
+            return String.format("Record {type: %d, tid:%d, offset: %d}", type, tid, offset);
+        }
     }
 
     class CheckpointRecord extends Record {
@@ -645,20 +673,20 @@ public class LogFile {
         }
 
         int type = raf.readInt();
+        long tid = raf.readLong();
         
         if (type == CHECKPOINT_RECORD) {
             final int size = raf.readInt();
             HashMap<Long, Long> map = new HashMap<>();
             for (int i = 0; i < size; i++) {
-                long tid = raf.readLong();
+                long t = raf.readLong();
                 long offset = raf.readLong();
-                map.put(tid, offset);
+                map.put(t, offset);
             }
             long offset = raf.readLong();
-            return new CheckpointRecord(type, offset, tidToFirstLogRecord);
+            return new CheckpointRecord(type, offset, map);
         }
 
-        long tid = raf.readLong();
 
         if (type == UPDATE_RECORD) {
             Page beforeImage = readPageData(raf);
@@ -671,10 +699,48 @@ public class LogFile {
         return new Record(type, tid, offset);
     }
 
-    private void rollbackPage(TransactionId tid, Page page) throws IOException {
+    private void rollbackPage(Page page) throws IOException {
         PageId pid = page.getId();
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
         dbFile.writePage(page);
         Database.getBufferPool().discardPage(pid);
+    }
+    
+    private void recoverRecords() throws IOException {
+        // 找出所有commited的事务进行恢复
+        Map<Long, List<UpdateRecord>> transactionUpdates = new HashMap<>();
+        Record record = parseRecord();
+        while(record != null) {
+            switch(record.type) {
+                case BEGIN_RECORD:
+                    transactionUpdates.put(record.tid, new ArrayList<>());
+                    break;
+                case UPDATE_RECORD:
+                    transactionUpdates.get(record.tid).add((UpdateRecord)record);
+                    break;
+                case COMMIT_RECORD:
+                    redoRecords(transactionUpdates.get(record.tid));
+                case ABORT_RECORD:
+                    transactionUpdates.remove(record.tid);
+                    break;
+                default:
+                    throw new UnexpectedException("不应该出现的记录类型: " + record);
+            }
+            record = parseRecord();
+        }
+        for(List<UpdateRecord> updateRecords : transactionUpdates.values()) {
+            for(UpdateRecord r : updateRecords) {
+                rollbackPage(r.beforeImage);
+            }
+        }
+    }
+
+    private void redoRecords(List<UpdateRecord> updates) throws IOException {
+        for(UpdateRecord update : updates) {
+            PageId pid = update.afterImage.getId();
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            dbFile.writePage(update.afterImage);
+            Database.getBufferPool().discardPage(pid);
+        }
     }
 }
